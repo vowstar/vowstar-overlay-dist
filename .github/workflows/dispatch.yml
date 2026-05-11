@@ -1,0 +1,52 @@
+name: dispatch
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "filter: substring of path under packages/ (empty = all)"
+        required: false
+        default: ""
+      version:
+        description: "override detected version (only meaningful with a single-package filter)"
+        required: false
+        default: ""
+  push:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - "scripts/**"
+      - ".github/workflows/**"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.plan.outputs.go }}
+      rust: ${{ steps.plan.outputs.rust }}
+      node: ${{ steps.plan.outputs.node }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+              https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - id: plan
+        run: scripts/lib/plan.sh "${{ inputs.package }}"
+
+  go:
+    needs: plan
+    if: needs.plan.outputs.go != '[]'
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        config: ${{ fromJson(needs.plan.outputs.go) }}
+    uses: ./.github/workflows/build-go.yml
+    with:
+      config: ${{ matrix.config }}
+      version_override: ${{ inputs.version }}
