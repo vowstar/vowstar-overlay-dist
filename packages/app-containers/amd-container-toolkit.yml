@@ -1,0 +1,12 @@
+kind: go
+category: app-containers
+name: amd-container-toolkit
+
+upstream:
+  source: github
+  repo: ROCm/container-toolkit
+  tag_prefix: v
+
+src:
+  url: https://github.com/ROCm/container-toolkit/archive/v{version}.tar.gz
+  extract: container-toolkit-{version}
