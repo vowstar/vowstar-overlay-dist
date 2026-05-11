@@ -1,0 +1,94 @@
+name: build-rust
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        type: string
+        required: true
+      version_override:
+        type: string
+        required: false
+        default: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: install pycargoebuild
+        run: pip install pycargoebuild
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+              https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name=$(yq -r '.name' "${{ inputs.config }}")
+          if [ -n "${{ inputs.version_override }}" ]; then
+              version="${{ inputs.version_override }}"
+          else
+              version=$(scripts/lib/detect-version.sh "${{ inputs.config }}")
+          fi
+          tag="${name}-${version}"
+          asset="${tag}-crates.tar.xz"
+          {
+              echo "name=${name}"
+              echo "version=${version}"
+              echo "tag=${tag}"
+              echo "asset=${asset}"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::resolved ${tag}"
+
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.meta.outputs.tag }}" \
+                  --json assets -q '.assets[].name' 2>/dev/null \
+                  | grep -qx "${{ steps.meta.outputs.asset }}"; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "::notice::${{ steps.meta.outputs.asset }} already published; skipping"
+          else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: cache crate downloads
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: /tmp/dist
+          key: rust-dist-${{ steps.meta.outputs.name }}-${{ steps.meta.outputs.version }}
+          restore-keys: |
+            rust-dist-${{ steps.meta.outputs.name }}-
+
+      - name: build crates tarball
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          scripts/build-rust-deps.sh \
+              "${{ inputs.config }}" \
+              "${{ steps.meta.outputs.version }}" \
+              "$RUNNER_TEMP"
+
+      - name: publish release
+        if: steps.check.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scripts/lib/release-upload.sh \
+              "${{ steps.meta.outputs.tag }}" \
+              "$RUNNER_TEMP/${{ steps.meta.outputs.asset }}"

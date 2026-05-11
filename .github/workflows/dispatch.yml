@@ -50,3 +50,17 @@ jobs:
     with:
       config: ${{ matrix.config }}
       version_override: ${{ inputs.version }}
+
+  rust:
+    needs: plan
+    if: needs.plan.outputs.rust != '[]'
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        config: ${{ fromJson(needs.plan.outputs.rust) }}
+    uses: ./.github/workflows/build-rust.yml
+    with:
+      config: ${{ matrix.config }}
+      version_override: ${{ inputs.version }}
